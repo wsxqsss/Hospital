@@ -1,6 +1,6 @@
-import tkinter as tk
+    import tkinter as tk
 from tkinter import ttk, messagebox
-from datetime import datetime, timedelta, date, time # Импортируем time
+from datetime import datetime, timedelta, date, time
 
 # --- Модели данных ---
 class Patient:
@@ -16,12 +16,12 @@ class Doctor:
         self.specialization = specialization
 
 class DoctorSchedule:
-    def __init__(self, schedule_id: int, doctor_id: int, days_of_week: list[str], work_start_time: time, work_end_time: time):
+    def __init__(self, schedule_id: int, doctor_id: int, days_of_week: list, work_start_time: time, work_end_time: time):
         self.schedule_id = schedule_id
         self.doctor_id = doctor_id
-        self.days_of_week = days_of_week # Список названий дней недели (например, ["Понедельник", "Среда"])
-        self.work_start_time = work_start_time # Теперь это datetime.time
-        self.work_end_time = work_end_time   # Теперь это datetime.time
+        self.days_of_week = days_of_week
+        self.work_start_time = work_start_time
+        self.work_end_time = work_end_time
 
 class Appointment:
     def __init__(self, appointment_id: int, patient_id: int, doctor_id: int, appointment_datetime: datetime):
@@ -30,7 +30,7 @@ class Appointment:
         self.doctor_id = doctor_id
         self.appointment_datetime = appointment_datetime
 
-# --- ИСимуляция базы данных ---
+# --- Симуляция базы данных ---
 patients_db = {
     1: Patient(1, "Иван Петров", date(1990, 5, 15)),
     2: Patient(2, "Мария Сидорова", date(1985, 11, 20)),
@@ -43,22 +43,17 @@ doctors_db = {
     103: Doctor(103, "Сергей Кузнецов", "Невролог")
 }
 
-# Расписание врачей
-# Важно: названия дней недели должны совпадать с тем, как их возвращает datetime.weekday() + 1
-# или как вы планируете их получать. Используем русские названия для удобства.
 days_ru = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"]
 
-# Пример: Терапевт работает Пн, Ср, Пт с 9:00 до 17:00
-#         Кардиолог работает Вт, Чт с 10:00 до 18:00
-#         Невролог работает только по Субботам с 9:00 до 13:00
 doctor_schedule_db = {
     1: DoctorSchedule(1, 101, ["Понедельник", "Среда", "Пятница"], time(9, 0), time(17, 0)),
     2: DoctorSchedule(2, 102, ["Вторник", "Четверг"], time(10, 0), time(18, 0)),
     3: DoctorSchedule(3, 103, ["Суббота"], time(9, 0), time(13, 0))
 }
 
-appointments_db = [] # Список текущих записей
+appointments_db = []
 next_appointment_id = 1
+
 
 # --- Основное приложение ---
 class ClinicApp:
@@ -70,6 +65,9 @@ class ClinicApp:
         self.doctor_var = tk.StringVar()
         self.date_var = tk.StringVar()
         self.time_var = tk.StringVar()
+
+        # Словарь: отображаемое время -> полный datetime-объект
+        self._time_slots_map = {}
 
         style = ttk.Style()
         style.theme_use("clam")
@@ -89,33 +87,38 @@ class ClinicApp:
         self.appointments_frame = ttk.LabelFrame(self.main_frame, text="Запланированные приемы", padding="10")
         self.appointments_frame.grid(row=1, column=0, padx=5, pady=5, sticky=(tk.W, tk.E, tk.N, tk.S))
 
+        # Пациент
         ttk.Label(self.booking_frame, text="Пациент:").grid(row=0, column=0, sticky=tk.W, pady=2)
         self.patient_combobox = ttk.Combobox(self.booking_frame, textvariable=self.patient_var, state="readonly", width=40)
         self.patient_combobox.grid(row=0, column=1, pady=2, padx=5)
         self.patient_combobox['values'] = [f"{p.patient_id} - {p.name}" for p in patients_db.values()]
         self.patient_combobox.bind("<<ComboboxSelected>>", self.on_selection_change)
 
+        # Врач
         ttk.Label(self.booking_frame, text="Врач:").grid(row=1, column=0, sticky=tk.W, pady=2)
         self.doctor_combobox = ttk.Combobox(self.booking_frame, textvariable=self.doctor_var, state="readonly", width=40)
         self.doctor_combobox.grid(row=1, column=1, pady=2, padx=5)
         self.doctor_combobox['values'] = [f"{d.doctor_id} - {d.name} ({d.specialization})" for d in doctors_db.values()]
         self.doctor_combobox.bind("<<ComboboxSelected>>", self.on_selection_change)
 
+        # Дата
         ttk.Label(self.booking_frame, text="Дата приема:").grid(row=2, column=0, sticky=tk.W, pady=2)
         from tkcalendar import DateEntry
         self.date_entry = DateEntry(self.booking_frame, selectmode='day', textvariable=self.date_var, width=37, date_pattern='yyyy-mm-dd')
         self.date_entry.grid(row=2, column=1, pady=2, padx=5)
         self.date_entry.bind("<<DateEntrySelected>>", self.on_date_select)
 
+        # Время
         ttk.Label(self.booking_frame, text="Время приема:").grid(row=3, column=0, sticky=tk.W, pady=2)
         self.time_combobox = ttk.Combobox(self.booking_frame, textvariable=self.time_var, state="readonly", width=40)
         self.time_combobox.grid(row=3, column=1, pady=2, padx=5)
-        self.time_combobox.bind("<<ComboboxSelected>>", self.on_selection_change)
         self.time_combobox.set("Выберите врача и дату сначала")
 
+        # Кнопка
         self.book_button = ttk.Button(self.booking_frame, text="Записаться на прием", command=self.create_appointment)
         self.book_button.grid(row=4, column=0, columnspan=2, pady=10)
 
+        # Таблица записей
         self.appointment_tree = ttk.Treeview(self.appointments_frame, columns=("ID", "Пациент", "Врач", "Время"), show="headings")
         self.appointment_tree.heading("ID", text="ID")
         self.appointment_tree.heading("Пациент", text="Пациент")
@@ -151,8 +154,9 @@ class ClinicApp:
         selected_doctor_info = self.doctor_var.get()
         selected_date_str = self.date_var.get()
 
-        self.time_var.set("") # Сбрасываем выбор времени
-        self.time_combobox.set("Выберите время")
+        # Сброс
+        self._time_slots_map = {}
+        self.time_var.set("")
         self.time_combobox['values'] = []
 
         if not selected_doctor_info or not selected_date_str:
@@ -180,34 +184,29 @@ class ClinicApp:
                 self.time_combobox.set(f"Врач не работает в {current_day_of_week_ru}")
                 return
 
-            available_times_slots = []
             slot_duration = timedelta(minutes=30)
+            start_dt = datetime.combine(selected_date, schedule.work_start_time)
+            end_dt = datetime.combine(selected_date, schedule.work_end_time)
 
-            # Используем datetime.time напрямую
-            start_of_day_datetime = datetime.combine(selected_date, schedule.work_start_time)
-            end_of_day_datetime = datetime.combine(selected_date, schedule.work_end_time)
+            display_labels = []
+            current_slot = start_dt
+            while current_slot < end_dt:
+                # Проверяем, не занят ли слот
+                is_booked = any(
+                    app.doctor_id == selected_doctor_id and app.appointment_datetime == current_slot
+                    for app in appointments_db
+                )
+                if not is_booked:
+                    label = current_slot.strftime("%H:%M")
+                    # Если два слота попадают в одно отображаемое время (не должно, но на всякий случай)
+                    # делаем ключ уникальным
+                    self._time_slots_map[label] = current_slot
+                    display_labels.append(label)
 
-            current_slot_start = start_of_day_datetime
-            while current_slot_start < end_of_day_datetime:
-                slot_display_time = current_slot_start.strftime("%H:%M")
-                slot_full_datetime_str = current_slot_start.strftime("%Y-%m-%d %H:%M")
+                current_slot += slot_duration
 
-                is_slot_booked = False
-                for app in appointments_db:
-                    if app.doctor_id == selected_doctor_id and app.appointment_datetime == current_slot_start:
-                        is_slot_booked = True
-                        break
-
-                if not is_slot_booked:
-                    # Сохраняем пару: полное время (для записи) и отображаемое время (для пользователя)
-                    available_times_slots.append((slot_full_datetime_str, slot_display_time))
-
-                current_slot_start += slot_duration
-
-            if available_times_slots:
-                available_times_slots = sorted(available_times_slots, key=lambda x: datetime.strptime(x[1], "%H:%M"))
-                # Установка значений для Combobox должна быть списка кортежей
-                self.time_combobox['values'] = available_times_slots
+            if display_labels:
+                self.time_combobox['values'] = display_labels
                 self.time_combobox.set("Выберите время")
             else:
                 self.time_combobox.set("Нет доступных слотов")
@@ -217,34 +216,25 @@ class ClinicApp:
         except Exception as e:
             messagebox.showerror("Ошибка", f"Произошла ошибка при обновлении времени: {e}")
 
-
     def create_appointment(self):
         global next_appointment_id
         try:
             selected_patient_info = self.patient_var.get()
             selected_doctor_info = self.doctor_var.get()
-            selected_time_info = self.time_var.get()
+            selected_time_label = self.time_var.get()
 
-            # Проверяем, что выбрано что-то осмысленное
-            if not all([selected_patient_info, selected_doctor_info]) or \
-               selected_time_info in ["Выберите время", "Выберите врача и дату сначала", "Нет доступных слотов", ""]:
-                messagebox.showwarning("Внимание", "Пожалуйста, выберите пациента, врача, дату и доступное время приема.")
+            # Базовые проверки
+            if not selected_patient_info or not selected_doctor_info:
+                messagebox.showwarning("Внимание", "Пожалуйста, выберите пациента и врача.")
                 return
 
-            if not isinstance(selected_time_info, tuple):
-                # Это означает, что пользователь выбрал что-то, что не является слотом,
-                # или что Combobox сбросил значение на строку.
-                messagebox.showerror("Ошибка выбора времени", "Пожалуйста, выберите конкретный временной слот из списка.")
-                # Здесь может быть полезно обновить слоты, чтобы показать актуальные
-                self.update_available_times()
+            if selected_time_label not in self._time_slots_map:
+                messagebox.showwarning("Внимание", "Пожалуйста, выберите доступное время приема.")
                 return
 
             patient_id = int(selected_patient_info.split(" - ")[0])
             doctor_id = int(selected_doctor_info.split(" - ")[0])
-
-            # Теперь selected_time_info - это кортеж (slot_full_datetime_str, slot_display_time)
-            appointment_datetime_str = selected_time_info[0]
-            appointment_display_time = selected_time_info[1]
+            appointment_datetime = self._time_slots_map[selected_time_label]
 
             if patient_id not in patients_db:
                 messagebox.showerror("Ошибка", f"Пациент с ID {patient_id} не найден.")
@@ -253,11 +243,10 @@ class ClinicApp:
                 messagebox.showerror("Ошибка", f"Врач с ID {doctor_id} не найден.")
                 return
 
-            appointment_datetime = datetime.strptime(appointment_datetime_str, "%Y-%m-%d %H:%M")
-
+            # Повторная проверка на занятость (на случай гонки)
             for app in appointments_db:
                 if app.doctor_id == doctor_id and app.appointment_datetime == appointment_datetime:
-                    messagebox.showwarning("Извините", f"Время {appointment_display_time} для врача {doctors_db[doctor_id].name} уже занято. Пожалуйста, выберите другое.")
+                    messagebox.showwarning("Занято", f"Время {selected_time_label} уже занято. Выберите другое.")
                     self.update_available_times()
                     return
 
@@ -270,15 +259,19 @@ class ClinicApp:
             appointments_db.append(new_appointment)
             next_appointment_id += 1
 
-            messagebox.showinfo("Успех", f"Вы успешно записались на прием:\nПациент: {patients_db[patient_id].name}\nВрач: {doctors_db[doctor_id].name}\nВремя: {appointment_datetime.strftime('%Y-%m-%d %H:%M')}")
+            messagebox.showinfo(
+                "Успех",
+                f"Запись оформлена:\n"
+                f"Пациент: {patients_db[patient_id].name}\n"
+                f"Врач: {doctors_db[doctor_id].name}\n"
+                f"Время: {appointment_datetime.strftime('%Y-%m-%d %H:%M')}"
+            )
 
             self.update_appointments_tree()
-            self.update_available_times() # Обновляем слоты, чтобы выбранный исчез
+            self.update_available_times()
 
-        except ValueError:
-            messagebox.showerror("Ошибка ввода", "Проверьте правильность выбора пациента, врача или формата времени.")
-        except IndexError:
-             messagebox.showerror("Ошибка ввода", "Не удалось получить ID из выбранных данных. Убедитесь, что вы выбрали пациента и врача.")
+        except (ValueError, IndexError):
+            messagebox.showerror("Ошибка ввода", "Проверьте правильность выбора пациента, врача или времени.")
         except Exception as e:
             messagebox.showerror("Неизвестная ошибка", f"Произошла ошибка при записи: {e}")
 
@@ -287,17 +280,16 @@ class ClinicApp:
             self.appointment_tree.delete(item)
 
         now = datetime.now()
-        upcoming_appointments = sorted(
+        upcoming = sorted(
             [app for app in appointments_db if app.appointment_datetime >= now],
             key=lambda x: x.appointment_datetime
         )
 
-        for app in upcoming_appointments:
+        for app in upcoming:
             patient = patients_db.get(app.patient_id)
             doctor = doctors_db.get(app.doctor_id)
-
             if patient and doctor:
-                 self.appointment_tree.insert("", tk.END, values=(
+                self.appointment_tree.insert("", tk.END, values=(
                     app.appointment_id,
                     f"{patient.name} (ID:{patient.patient_id})",
                     f"{doctor.name} ({doctor.specialization})",
@@ -308,13 +300,14 @@ class ClinicApp:
         if messagebox.askokcancel("Выход", "Вы уверены, что хотите выйти?"):
             self.root.destroy()
 
-# --- Запуск приложения ---
+
+# --- Запуск ---
 if __name__ == "__main__":
     try:
         from tkcalendar import DateEntry
     except ImportError:
         print("Ошибка: модуль tkcalendar не найден.")
-        print("Пожалуйста, установите его: pip install tkcalendar")
+        print("Установите его: pip install tkcalendar")
         exit()
 
     root = tk.Tk()
