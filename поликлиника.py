@@ -60,7 +60,6 @@ next_appointment_id = 1
 conn = sqlite3.connect('polyclinic.db')
 cursor = conn.cursor()
 
-# Создание таблиц
 cursor.execute('''
 CREATE TABLE IF NOT EXISTS Patients (
     patient_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -114,6 +113,7 @@ class ClinicApp:
         self.create_patients_tab()
         self.create_doctors_tab()
         self.create_appointments_tab()
+        self.create_diagnosis_tab()
 
         # Инициализация данных
         today = date.today()
@@ -122,19 +122,15 @@ class ClinicApp:
 
         self.update_appointments_tree()
 
-    # --- Вкладка записи на приём ---
     def create_booking_tab(self):
         self.booking_frame = ttk.Frame(self.notebook)
         self.notebook.add(self.booking_frame, text='Запись на прием')
 
-        # Переменные
-        self.patient_var = tk.StringVar()
-        self.doctor_var = tk.StringVar()
         self.date_var = tk.StringVar()
-        self.time_var = tk.StringVar()
 
         # Пациент
         ttk.Label(self.booking_frame, text="Пациент:").grid(row=0, column=0, sticky=tk.W, pady=2)
+        self.patient_var = tk.StringVar()
         self.patient_combobox = ttk.Combobox(self.booking_frame, textvariable=self.patient_var, state="readonly", width=40)
         self.patient_combobox.grid(row=0, column=1, pady=2, padx=5)
         self.patient_combobox['values'] = [f"{p.patient_id} - {p.name}" for p in patients_db.values()]
@@ -142,9 +138,10 @@ class ClinicApp:
 
         # Врач
         ttk.Label(self.booking_frame, text="Врач:").grid(row=1, column=0, sticky=tk.W, pady=2)
+        self.doctor_var = tk.StringVar()
         self.doctor_combobox = ttk.Combobox(self.booking_frame, textvariable=self.doctor_var, state="readonly", width=40)
-        self.doctor_combobox.grid(row=1, column=1, pady=2, padx=5)
         self.doctor_combobox['values'] = [f"{d.doctor_id} - {d.name} ({d.specialization})" for d in doctors_db.values()]
+        self.doctor_combobox.grid(row=1, column=1, pady=2, padx=5)
         self.doctor_combobox.bind("<<ComboboxSelected>>", self.on_selection_change)
 
         # Дата
@@ -152,10 +149,11 @@ class ClinicApp:
         from tkcalendar import DateEntry
         self.date_entry = DateEntry(self.booking_frame, selectmode='day', textvariable=self.date_var, width=37, date_pattern='yyyy-mm-dd')
         self.date_entry.grid(row=2, column=1, pady=2, padx=5)
-        self.date_entry.bind("<<DateEntrySelected>>", self.on_date_select)
+        self.date_entry.bind("<<DateEntrySelected>>", lambda e: self.update_available_times())
 
         # Время
         ttk.Label(self.booking_frame, text="Время приема:").grid(row=3, column=0, sticky=tk.W, pady=2)
+        self.time_var = tk.StringVar()
         self.time_combobox = ttk.Combobox(self.booking_frame, textvariable=self.time_var, state="readonly", width=40)
         self.time_combobox.grid(row=3, column=1, pady=2, padx=5)
         self.time_combobox.set("Выберите врача и дату сначала")
@@ -187,9 +185,6 @@ class ClinicApp:
         self.date_entry.bind("<<DateEntrySelected>>", lambda e: self.update_available_times())
         self.patient_combobox.bind("<<ComboboxSelected>>", lambda e: self.update_available_times())
         self.doctor_combobox.bind("<<ComboboxSelected>>", lambda e: self.update_available_times())
-
-    def on_date_select(self, event=None):
-        self.update_available_times()
 
     def on_selection_change(self, event=None):
         if self.patient_var.get() and self.doctor_var.get():
@@ -316,7 +311,6 @@ class ClinicApp:
                     app.appointment_datetime.strftime('%Y-%m-%d %H:%M')
                 ))
 
-    # --- Таблица пациентов ---
     def create_patients_tab(self):
         self.patients_tab = ttk.Frame(self.notebook)
         self.notebook.add(self.patients_tab, text='Пациенты')
@@ -422,7 +416,6 @@ class ClinicApp:
             with open(file_path, 'w', encoding='utf-8') as f:
                 json.dump(data, f, ensure_ascii=False, indent=4)
 
-    # --- Вкладка врачи ---
     def create_doctors_tab(self):
         self.doctors_tab = ttk.Frame(self.notebook)
         self.notebook.add(self.doctors_tab, text='Врачи')
@@ -527,7 +520,6 @@ class ClinicApp:
             with open(file_path, 'w', encoding='utf-8') as f:
                 json.dump(data, f, ensure_ascii=False, indent=4)
 
-    # --- Вкладка приёмов ---
     def create_appointments_tab(self):
         self.appointments_tab = ttk.Frame(self.notebook)
         self.notebook.add(self.appointments_tab, text='Записи')
@@ -537,10 +529,11 @@ class ClinicApp:
         self.appointment_search_entry.grid(row=0, column=1, padx=5, pady=5)
         ttk.Button(self.appointments_tab, text="Найти", command=self.search_appointments).grid(row=0, column=2, padx=5, pady=5)
 
-        self.appointment_tree = ttk.Treeview(self.appointments_tab, columns=("ID", "Пациент", "Врач"), show='headings')
+        self.appointment_tree = ttk.Treeview(self.appointments_tab, columns=("ID", "Пациент", "Врач", "Время"), show='headings')
         self.appointment_tree.heading("ID", text="ID")
         self.appointment_tree.heading("Пациент", text="Пациент")
         self.appointment_tree.heading("Врач", text="Врач")
+        self.appointment_tree.heading("Время", text="Время")
         self.appointment_tree.grid(row=1, column=0, columnspan=3, padx=5, pady=5)
         self.appointment_tree.bind('<<TreeviewSelect>>', self.on_appointment_select)
         self.load_appointments()
@@ -638,6 +631,48 @@ class ClinicApp:
         cursor.execute("SELECT appointment_id, patient_id, doctor_id FROM Appointments")
         for row in cursor.fetchall():
             self.appointment_tree.insert('', 'end', values=row)
+
+    def create_diagnosis_tab(self):
+        self.diagnosis_frame = ttk.Frame(self.notebook)
+        self.notebook.add(self.diagnosis_frame, text='Диагностика')
+
+        ttk.Label(self.diagnosis_frame, text="Выберите болезнь:").grid(row=0, column=0, padx=10, pady=10)
+
+        # Список болезней и врачей по специализациям
+        self.diseases = [
+            ("Головная боль", "Невролог"),
+            ("Боль в сердце", "Кардиолог"),
+            ("Кашель и насморк", "Терапевт"),
+            ("Боль в животе", "Терапевт"),
+            ("Обморок", "Невролог"),
+            ("Одышка", "Кардиолог")
+        ]
+
+        self.disease_listbox = tk.Listbox(self.diagnosis_frame, height=6, selectmode=tk.SINGLE, width=30)
+        for disease, _ in self.diseases:
+            self.disease_listbox.insert(tk.END, disease)
+        self.disease_listbox.grid(row=1, column=0, padx=10, pady=10)
+
+        self.recommend_button = ttk.Button(self.diagnosis_frame, text="Показать врача", command=self.recommend_doctor)
+        self.recommend_button.grid(row=2, column=0, padx=10, pady=10)
+
+        self.result_label = ttk.Label(self.diagnosis_frame, text="", foreground="blue")
+        self.result_label.grid(row=3, column=0, padx=10, pady=10)
+
+    def recommend_doctor(self):
+        selected_indices = self.disease_listbox.curselection()
+        if not selected_indices:
+            self.result_label.config(text="Пожалуйста, выберите болезнь.")
+            return
+        index = selected_indices[0]
+        disease_name, doctor_spec = self.diseases[index]
+        # Искать врача по специализации
+        for doctor in doctors_db.values():
+            if doctor.specialization == doctor_spec:
+                self.result_label.config(text=f"Рекомендуемый врач: {doctor.name} ({doctor.specialization})")
+                return
+        self.result_label.config(text="Подходящий врач не найден.")
+
 
 # --- Запуск ---
 if __name__ == "__main__":
